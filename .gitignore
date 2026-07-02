@@ -1,0 +1,23 @@
+# IDE
+.idea/
+.vs/
+.vscode/
+
+# CMake 构建目录
+build/
+out/
+cmake-build-*/
+
+# CMake 生成文件
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# 编译产物
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.dll
+*.lib
