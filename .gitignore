@@ -2,22 +2,37 @@
 .idea/
 .vs/
 .vscode/
+*.suo
+*.user
 
 # CMake 构建目录
 build/
+build-*/
 out/
 cmake-build-*/
+vcpkg_installed/
+
+# CMake 本地配置
+CMakeUserPresets.json
 
 # CMake 生成文件
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
+CTestTestfile.cmake
 Makefile
+*.sln
+*.vcxproj*
 
 # 编译产物
 *.exe
 *.obj
+*.o
 *.pdb
 *.ilk
 *.dll
 *.lib
+*.exp
+*.a
+*.so
+*.dylib
