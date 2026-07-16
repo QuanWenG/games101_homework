@@ -40,7 +40,7 @@ auto to_vec4(const Eigen::Vector3f& v3, float w = 1.0f)
 }
 
 
-static bool insideTriangle(int x, int y, const Vector3f* _v)
+static bool insideTriangle(float x, float y, const Vector3f* _v)
 {   
 
     // TODO : Implement this function to check if the point (x, y) is inside the triangle represented by _v[0], _v[1], _v[2]
@@ -48,7 +48,7 @@ static bool insideTriangle(int x, int y, const Vector3f* _v)
     // 判断检查点是否位于三条边的同一侧
     // AB x AP  BC x BP  CA x CP 的叉乘结果全负或全正，则P在三角形内
 
-    Vector3f p(x + 0.5f, y + 0.5f, 0.0f);
+    Vector3f p(x, y, 0.0f);
 
     float cross0 = (_v[1] - _v[0]).cross(p - _v[0]).z();
     float cross1 = (_v[2] - _v[1]).cross(p - _v[1]).z();
@@ -131,7 +131,7 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t) {
 
     float max_x = std::max({
             t.v[0].x(), t.v[1].x(), t.v[2].x()
-        });;
+        });
 
     float min_y = std::min({
         t.v[0].y(), t.v[1].y(), t.v[2].y()
@@ -170,54 +170,67 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t) {
 
     // TODO : set the current pixel (use the set_pixel function) to the color of the triangle (use getColor function) if it should be painted.
 
-    // 遍历像素
+    const float sample_offsets[4][2] = {
+        {0.25f, 0.25f},
+        {0.75f, 0.25f},
+        {0.25f, 0.75f},
+        {0.75f, 0.75f}
+    };
+
+    // 遍历像素，并对每个像素执行 2x2 子采样
     for (int x = x_min; x <= x_max; ++x)
     {
         for (int y = y_min; y <= y_max; ++y)
         {
-            // 像素中心不在三角形内，不处理
-            if (!insideTriangle(x, y, t.v))
+            int pixel_index = get_index(x, y);
+            bool sample_changed = false;
+
+            for (int sample = 0; sample < 4; ++sample)
             {
-                continue;
-            }
+                float sample_x = x + sample_offsets[sample][0];
+                float sample_y = y + sample_offsets[sample][1];
 
-            // 求当前像素相对于三个顶点的重心坐标
-            auto [alpha, beta, gamma] =
-                computeBarycentric2D(x + 0.5f, y + 0.5f, t.v);
+                if (!insideTriangle(sample_x, sample_y, t.v))
+                {
+                    continue;
+                }
 
-            // 利用重心坐标插值得到深度
-            float w_reciprocal =
-                1.0f / (
-                    alpha / v[0].w() +
-                    beta / v[1].w() +
-                    gamma / v[2].w()
+                auto [alpha, beta, gamma] =
+                    computeBarycentric2D(sample_x, sample_y, t.v);
+
+                float w_reciprocal =
+                    1.0f / (
+                        alpha / v[0].w() +
+                        beta / v[1].w() +
+                        gamma / v[2].w()
                     );
 
-            float z_interpolated =
-                alpha * v[0].z() / v[0].w() +
-                beta * v[1].z() / v[1].w() +
-                gamma * v[2].z() / v[2].w();
+                float z_interpolated =
+                    alpha * v[0].z() / v[0].w() +
+                    beta * v[1].z() / v[1].w() +
+                    gamma * v[2].z() / v[2].w();
+                z_interpolated *= w_reciprocal;
 
-            z_interpolated *= w_reciprocal;
+                int sample_index = pixel_index * 4 + sample;
+                if (z_interpolated < depth_buf[sample_index])
+                {
+                    depth_buf[sample_index] = z_interpolated;
+                    sample_color_buf[sample_index] = t.getColor();
+                    sample_changed = true;
+                }
+            }
 
-            // 找到当前像素在一维深度缓冲中的位置
-            int index = get_index(x, y);
-
-            // 深度更小，说明当前三角形更靠近相机
-            if (z_interpolated < depth_buf[index])
+            // 将四个子样本的颜色平均，得到最终像素颜色
+            if (sample_changed)
             {
-                // 记录新的最近深度
-                depth_buf[index] = z_interpolated;
+                Vector3f final_color = Vector3f::Zero();
+                for (int sample = 0; sample < 4; ++sample)
+                {
+                    final_color += sample_color_buf[pixel_index * 4 + sample];
+                }
+                final_color /= 4.0f;
 
-                // 更新像素颜色
-                set_pixel(
-                    Vector3f(
-                        static_cast<float>(x),
-                        static_cast<float>(y),
-                        z_interpolated
-                    ),
-                    t.getColor()
-                );
+                set_pixel(Vector3f(x, y, 0.0f), final_color);
             }
         }
     }
@@ -243,6 +256,7 @@ void rst::rasterizer::clear(rst::Buffers buff)
     if ((buff & rst::Buffers::Color) == rst::Buffers::Color)
     {
         std::fill(frame_buf.begin(), frame_buf.end(), Eigen::Vector3f{0, 0, 0});
+        std::fill(sample_color_buf.begin(), sample_color_buf.end(), Eigen::Vector3f{0, 0, 0});
     }
     if ((buff & rst::Buffers::Depth) == rst::Buffers::Depth)
     {
@@ -253,7 +267,8 @@ void rst::rasterizer::clear(rst::Buffers buff)
 rst::rasterizer::rasterizer(int w, int h) : width(w), height(h)
 {
     frame_buf.resize(w * h);
-    depth_buf.resize(w * h);
+    depth_buf.resize(w * h * 4);
+    sample_color_buf.resize(w * h * 4);
 }
 
 int rst::rasterizer::get_index(int x, int y)
